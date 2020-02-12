@@ -1,10 +1,12 @@
 # Makefile for generating the SWIG documentation
 #
-# Note that the htmldoc package needs to be installed, but requires patching (using the
-# margin-left.patch file from this directory) in order to correctly generate the pdf docs.
+# Note that the htmldoc package needs to be installed. wkhtmltopdf patched with qt is also required
+# and can be installed from http://wkhtmltopdf.org/downloads.html.
+#
 # The .html files are first processed and updated with chapter numbering and anchor names
 # are added to the HTML headings using the python scripts. The htmldoc program is then
-# used to generate the PDF document and single page HTML version of the documentation.
+# used to generate the single page HTML version of the documentation.
+# wkhtmltopdf is used to generate the pdf document from the single page html file.
 # HTML TIDY (package also known as tidy) is also required and is used as an aid to HTML
 # validation.
 #
@@ -41,6 +43,7 @@ check:
 #  3) <pre> <tt> <code> elements do not always select a fixed-width font - try installing the
 #     Courier font to fix - these have been added to style.css.
 generate: SWIGDocumentation.html
+	wkhtmltopdf --version | grep "with patched qt" || (echo "wkhtmltopdf is not the patched qt version and so cannot be used - download it from http://wkhtmltopdf.org/downloads.html" && false)
 	wkhtmltopdf --margin-top 20mm --margin-bottom 20mm --margin-left 10mm --margin-right 10mm --header-font-size 6 --footer-font-size 6 --header-spacing 6 --footer-spacing 6 --header-center '[doctitle]' --footer-left '[subsection]' --footer-right '[page]' SWIGDocumentation.html SWIGDocumentation.pdf
 
 SWIGDocumentation.html: swightml.book
@@ -86,3 +89,9 @@ linkchecker2:
 	cp *.png linkchecker-tmp
 	(cd linkchecker-tmp && linkchecker --config=../linkchecker.config -F text --no-warnings SWIGDocumentation.html)
 
+# Simple check for relative links (there shouldn't be any), they don't translate properly creating the .pdf doc
+# with wkhtmltopdf. For example, href="SWIG.html" needs to be href="SWIG.html#SWIG"
+linkchecker3:
+	@echo "The following list should just contain SWIGDocumentation.html and SWIGDocumentation.pdf,"
+	@echo "as all links should have an anchor (with a #) or be a full url beginning http."
+	grep 'href="' *.html | sed -e 's/.*href="\(.*\)">.*$$/\1/' | grep -v "#" | grep -v "^http" | grep -v "^style.css"
