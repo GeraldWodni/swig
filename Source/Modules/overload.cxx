@@ -185,7 +185,8 @@ List *Swig_overload_rank(Node *n, bool script_lang_wrapping) {
 	      nodes[j] = t;
 	      break;
 	    } else if ((differ == 0) && (Strcmp(t1, "0") == 0)) {
-	      t1 = Getattr(p1, "ltype");
+	      t1 = Getattr(p1, "equivtype");
+	      t1 = t1 ? t1 : Getattr(p1, "ltype");
 	      if (!t1) {
 		t1 = SwigType_ltype(Getattr(p1, "type"));
 		if (Getattr(p1, "tmap:typecheck:SWIGTYPE")) {
@@ -193,7 +194,8 @@ List *Swig_overload_rank(Node *n, bool script_lang_wrapping) {
 		}
 		Setattr(p1, "ltype", t1);
 	      }
-	      t2 = Getattr(p2, "ltype");
+	      t2 = Getattr(p2, "equivtype");
+	      t2 = t2 ? t2 : Getattr(p2, "ltype");
 	      if (!t2) {
 		t2 = SwigType_ltype(Getattr(p2, "type"));
 		if (Getattr(p2, "tmap:typecheck:SWIGTYPE")) {
@@ -231,9 +233,21 @@ List *Swig_overload_rank(Node *n, bool script_lang_wrapping) {
 	  }
 	  if (!differ) {
 	    /* See if declarations differ by const only */
-	    String *d1 = Getattr(nodes[i].n, "decl");
-	    String *d2 = Getattr(nodes[j].n, "decl");
-	    if (d1 && d2) {
+	    String *decl1 = Getattr(nodes[i].n, "decl");
+	    String *decl2 = Getattr(nodes[j].n, "decl");
+	    if (decl1 && decl2) {
+	      /* Remove ref-qualifiers. Note that rvalue ref-qualifiers are already ignored and 
+	       * it is illegal to overload a function with and without ref-qualifiers. So with
+	       * all the combinations of ref-qualifiers and cv-qualifiers, we just detect 
+	       * the cv-qualifier (const) overloading. */
+	      String *d1 = Copy(decl1);
+	      String *d2 = Copy(decl2);
+	      if (SwigType_isreference(d1) || SwigType_isrvalue_reference(d1)) {
+		Delete(SwigType_pop(d1));
+	      }
+	      if (SwigType_isreference(d2) || SwigType_isrvalue_reference(d2)) {
+		Delete(SwigType_pop(d2));
+	      }
 	      String *dq1 = Copy(d1);
 	      String *dq2 = Copy(d2);
 	      if (SwigType_isconst(d1)) {
@@ -428,11 +442,12 @@ String *Swig_overload_dispatch_cast(Node *n, const_String_or_char_ptr fmt, int *
 
   /* Loop over the functions */
 
-  bool emitcheck = 1;
+  bool emitcheck = true;
   for (i = 0; i < nfunc; i++) {
     int fn = 0;
     Node *ni = Getitem(dispatch, i);
     Parm *pi = Getattr(ni, "wrap:parms");
+    bool implicitconvtypecheckoff = GetFlag(ni, "implicitconvtypecheckoff") != 0;
     int num_required = emit_num_required(pi);
     int num_arguments = emit_num_arguments(pi);
     if (num_arguments > *maxargs)
@@ -476,6 +491,7 @@ String *Swig_overload_dispatch_cast(Node *n, const_String_or_char_ptr fmt, int *
 
 	String *tm = Getattr(pj, "tmap:typecheck");
 	if (tm) {
+	  tm = Copy(tm);
 	  /* normalise for comparison later */
 	  Replaceid(tm, Getattr(pj, "lname"), "_v");
 
@@ -502,7 +518,7 @@ String *Swig_overload_dispatch_cast(Node *n, const_String_or_char_ptr fmt, int *
 		if (tml)
 		  Replaceid(tml, Getattr(pl, "lname"), "_v");
 		if (!tml || Cmp(tm, tml))
-		  emitcheck = 1;
+		  emitcheck = true;
 		//printf("tmap: %s[%d] (%d) => %s\n\n",
 		//       Char(Getattr(nk, "sym:name")),
 		//       l, emitcheck, tml?Char(tml):0);
@@ -528,13 +544,14 @@ String *Swig_overload_dispatch_cast(Node *n, const_String_or_char_ptr fmt, int *
 	    String *tmp = NewStringf(argv_template_string, j);
 
 	    String *conv = Getattr(pj, "implicitconv");
-	    if (conv) {
+	    if (conv && !implicitconvtypecheckoff) {
 	      Replaceall(tm, "$implicitconv", conv);
 	    } else {
 	      Replaceall(tm, "$implicitconv", "0");
 	    }
 	    Replaceall(tm, "$input", tmp);
 	    Printv(f, "{\n", tm, "}\n", NIL);
+	    Delete(tm);
 	    fn = i + 1;
 	    Printf(f, "if (!_v) goto check_%d;\n", fn);
 	    Printf(f, "_ranki += _v*_pi;\n");
@@ -574,6 +591,9 @@ String *Swig_overload_dispatch_cast(Node *n, const_String_or_char_ptr fmt, int *
     if (fn)
       Printf(f, "check_%d:\n\n", fn);
 
+    if (implicitconvtypecheckoff)
+      Delattr(ni, "implicitconvtypecheckoff");
+
     Delete(lfmt);
     Delete(coll);
   }
@@ -590,7 +610,7 @@ String *Swig_overload_dispatch_cast(Node *n, const_String_or_char_ptr fmt, int *
 /*
   Fast dispatch mechanism, provided by  Salvador Fandi~no Garc'ia (#930586).
 */
-String *Swig_overload_dispatch_fast(Node *n, const_String_or_char_ptr fmt, int *maxargs) {
+static String *overload_dispatch_fast(Node *n, const_String_or_char_ptr fmt, int *maxargs, const_String_or_char_ptr fmt_fastdispatch) {
   int i, j;
 
   *maxargs = 1;
@@ -607,6 +627,7 @@ String *Swig_overload_dispatch_fast(Node *n, const_String_or_char_ptr fmt, int *
     int fn = 0;
     Node *ni = Getitem(dispatch, i);
     Parm *pi = Getattr(ni, "wrap:parms");
+    bool implicitconvtypecheckoff = GetFlag(ni, "implicitconvtypecheckoff") != 0;
     int num_required = emit_num_required(pi);
     int num_arguments = emit_num_arguments(pi);
     if (num_arguments > *maxargs)
@@ -632,6 +653,7 @@ String *Swig_overload_dispatch_fast(Node *n, const_String_or_char_ptr fmt, int *
 
     // printf("overload: %s coll=%d\n", Char(Getattr(n, "sym:name")), Len(coll));
 
+    bool emitcheck = false;
     int num_braces = 0;
     bool test = (Len(coll) > 0 && num_arguments);
     if (test) {
@@ -646,12 +668,13 @@ String *Swig_overload_dispatch_fast(Node *n, const_String_or_char_ptr fmt, int *
 
 	String *tm = Getattr(pj, "tmap:typecheck");
 	if (tm) {
+	  tm = Copy(tm);
 	  /* normalise for comparison later */
 	  Replaceid(tm, Getattr(pj, "lname"), "_v");
 
 	  /* if all the wrappers have the same type check on this
 	     argument we can optimize it out */
-	  bool emitcheck = 0;
+	  emitcheck = false;
 	  for (int k = 0; k < Len(coll) && !emitcheck; k++) {
 	    Node *nk = Getitem(coll, k);
 	    Parm *pk = Getattr(nk, "wrap:parms");
@@ -673,7 +696,7 @@ String *Swig_overload_dispatch_fast(Node *n, const_String_or_char_ptr fmt, int *
 		if (tml)
 		  Replaceid(tml, Getattr(pl, "lname"), "_v");
 		if (!tml || Cmp(tm, tml))
-		  emitcheck = 1;
+		  emitcheck = true;
 		//printf("tmap: %s[%d] (%d) => %s\n\n",
 		//       Char(Getattr(nk, "sym:name")),
 		//       l, emitcheck, tml?Char(tml):0);
@@ -699,13 +722,14 @@ String *Swig_overload_dispatch_fast(Node *n, const_String_or_char_ptr fmt, int *
 	    String *tmp = NewStringf(argv_template_string, j);
 
 	    String *conv = Getattr(pj, "implicitconv");
-	    if (conv) {
+	    if (conv && !implicitconvtypecheckoff) {
 	      Replaceall(tm, "$implicitconv", conv);
 	    } else {
 	      Replaceall(tm, "$implicitconv", "0");
 	    }
 	    Replaceall(tm, "$input", tmp);
 	    Printv(f, "{\n", tm, "}\n", NIL);
+	    Delete(tm);
 	    fn = i + 1;
 	    Printf(f, "if (!_v) goto check_%d;\n", fn);
 	  }
@@ -729,13 +753,16 @@ String *Swig_overload_dispatch_fast(Node *n, const_String_or_char_ptr fmt, int *
     for ( /* empty */ ; num_braces > 0; num_braces--)
       Printf(f, "}\n");
 
-
-    String *lfmt = ReplaceFormat(fmt, num_arguments);
+    // The language module may want to generate different code for last overloaded function called (with same number of arguments)
+    String *lfmt = ReplaceFormat(!emitcheck && fmt_fastdispatch ? fmt_fastdispatch : fmt, num_arguments);
     Printf(f, Char(lfmt), Getattr(ni, "wrap:name"));
 
     Printf(f, "}\n");		/* braces closes "if" for this method */
     if (fn)
       Printf(f, "check_%d:\n\n", fn);
+
+    if (implicitconvtypecheckoff)
+      Delattr(ni, "implicitconvtypecheckoff");
 
     Delete(lfmt);
     Delete(coll);
@@ -744,10 +771,10 @@ String *Swig_overload_dispatch_fast(Node *n, const_String_or_char_ptr fmt, int *
   return f;
 }
 
-String *Swig_overload_dispatch(Node *n, const_String_or_char_ptr fmt, int *maxargs) {
+String *Swig_overload_dispatch(Node *n, const_String_or_char_ptr fmt, int *maxargs, const_String_or_char_ptr fmt_fastdispatch) {
 
   if (fast_dispatch_mode || GetFlag(n, "feature:fastdispatch")) {
-    return Swig_overload_dispatch_fast(n, fmt, maxargs);
+    return overload_dispatch_fast(n, fmt, maxargs, fmt_fastdispatch);
   }
 
   int i, j;

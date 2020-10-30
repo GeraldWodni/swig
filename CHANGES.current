@@ -1,176 +1,145 @@
 Below are the changes for the current release.
 See the CHANGES file for changes in older releases.
 See the RELEASENOTES file for a summary of changes in each release.
+Issue # numbers mentioned below can be found on Github. For more details, add
+the issue number to the end of the URL: https://github.com/swig/swig/issues/
 
-Version 3.0.9 (in progress)
+Version 4.0.1 (21 Aug 2019)
 ===========================
 
-2016-05-07: wsfulton
-            Fix #611. Fix assertion handling defaultargs when using %extend for a template
-            class and the extended methods contain default arguments.
+2019-08-20: TekuConcept
+            [Javascript] #1535 Add %native support to Javascript.
 
-2016-05-05: ejulian
-            [Python] Patch #617. Fix operator/ wrappers.
+2019-08-20: bkotzz
+            [Java] #1616 Add SWIG_JavaIllegalStateException to support throwing
+            java.lang.IllegalStateException from JNI code.
 
-2016-05-02: wsfulton
-            Fix #669. Don't issue warning about ignoring base classes when the derived class is
-            itself ignored.
+2019-08-19: sjml
+            [Lua] #1596 tostring output changes to show the underlying C/C++ pointer.
 
-2016-04-18: ianlancetaylor
-	    [Go] Fix use of goout typemap when calling base method by
-	    forcing the "type" attribute to the value we need.
+2019-08-08: rokups
+            [C#, Java] #1601 Fix invalid code generated for "%constant enum EnumType.
 
-2016-04-17: ianlancetaylor
-	    [Go] Fixes for Go 1.6: avoid returning Go pointers from
-	    directors that return string values; add a trailing 0 byte
-	    when treating Go string as C char*.
+2019-08-07: wsfulton
+            [Python] Fix method overloading of methods that take STL containers of different
+            types. The following usage (using std::vector) would fail when using -builtin:
 
-2016-04-06: smarchetto
-            [Scilab] #552 Make Scilab runtime keep track of pointer types
-            Instead of a Scilab pointer which has no type, SWIG Scilab maps a
-            pointer to a structure tlist containing the pointer adress and its type.
+              %include <std_string.i>
+              %include <std_vector.i>
 
-2016-04-02: ahnolds
-            [Python] Apply #598. Fix misleading error message when attempting to read a non-existent
-            attribute. The previous cryptic error message:
-              AttributeError: type object 'object' has no attribute '__getattr__'
-            is now replaced with one mentioning the attribute name, eg:
-              AttributeError: 'Foo' object has no attribute 'bar'
+              %inline %{
+              struct X {};
+              %}
 
-2016-04-02: derkuci
-            [Python] Patch #610 to fix #607.
-            Fix single arguments when using python -builtin -O with %feature("compactdefaultargs")
+              %template(VectorX) std::vector<X>;
+              %template(VectorInt) std::vector<int>;
 
-2016-03-31: wsfulton
-            Fixes #594. Fix assertion for some languages when wrapping a C++11 enum class that
-            is private in a class.
+              %inline %{
+              using namespace std;
+              string VectorOverload(vector<X> v);
+              string VectorOverload(vector<int> v);
+              %}
 
-            Also don't wrap private enums for a few languages that attempted to do so.
+            The following would incorrectly fail:
 
-2016-03-31: wsfulton
-            [Java] unsigned long long marshalling improvements when a negative number
-            is passed from Java to C. A cast to signed long long in the C layer will now
-            result in the expected value. No change for positive numbers passed to C.
-            Fixes #623.
+              s = VectorOverload([1, 2, 3])
 
-2016-03-22: alexwarg
-	    [Lua] #398 Fix lua __getitem + inheritance
-            The new handling of classes in Lua (not merging methods into the derived classes)
-            breaks for classes that provide a __getitem function. The __getitem function
-            prevents method calls to any method defined in a base class. This fix calls
-            __getitem only if the member is not found using recursive lookup.
+            With:
 
-2016-03-18: ptomulik
-	    [Python] #563 Stop generating unnecessary _swigconstant helpers.
+              Traceback (most recent call last):
+                File "runme3.py", line 20, in <module>
+                  ret = VectorOverload([1, 2, 3])
+              TypeError: Wrong number or type of arguments for overloaded function 'VectorOverload'.
+                Possible C/C++ prototypes are:
+                  VectorOverload(std::vector< Number,std::allocator< Number > >)
+                  VectorOverload(std::vector< int,std::allocator< int > >)
 
-2016-03-16: richardbeare
-	    [R] #636 Add extra std::vector numeric types
+            The problem was due to some error handling that was not cleared during typehecking.
+            In this case an error was not cleared when the elements in the list failed the
+            typecheck for converting to X. Only occurs in Python 3+.
 
-2016-03-14: wsfulton
-	    [Java] Add std_array.i for C++11 std::array support.
+            In some combinations of overloaded methods, the following type of error message would
+            occur:
 
-2016-03-12: wsfulton
-	    [Java, C#, D] Fix static const char member variables wrappers with %javaconst(1)
-            %csconst(1) or %dmanifestconst.
-            This fixes the case when an integer is used as the initializer, such as:
+              RuntimeError: in sequence element 0
 
-              struct W { static const char w = 100; };
+              The above exception was the direct cause of the following exception:
 
-	    Fix generated code parsing enum values using char escape sequences
-            when these values appear in the Java code (usually when using %javaconst(1))
-            such as:
+              Traceback (most recent call last):
+                File "runme3.py", line 23, in <module>
+                  check(VectorOverload(v), "vector<X>")
+              SystemError: <built-in function VectorOverload> returned a result with an error set
 
-              enum X { x1 = '\n', x2 = '\1' };
+2019-08-01: wsfulton
+            #1602 Fix regression in 4.0.0 where a template function containing a parameter
+            with the same name as the function name led to the parameter name used in the
+            target language being incorrectly modified.
 
-            Similarly for static const member char variables such as:
+2019-07-29: wsfulton
+            Remove all generated files on error. Previously generated files were not removed,
+            potentially breaking Makefiles using file dependencies, especially when -Werror
+            (warnings as errors) was used.
 
-              struct Y { static const char y = '\n'; }
+2019-07-23: smithx
+            [C#] #1530 #1532 Fix marshalling of std::wstring to C#.
 
-            Likewise for D and %dmanifestconstant. For C# and %csconst(1), char
-            values in C# are now hex escaped as C# doesn't support C octal escaping.
+2019-07-18: gicmo
+            [Python] #1587 Python 3.8 support - remove use of deprecated PyObject_GC_UnTrack.
 
-2016-03-11: wsfulton
-            [Java C#] Add support for treating C++ base classes as Java interfaces
-            instead of Java proxy classes. This enable some sort of support for
-            multiple inheritance. The implementation is in swiginterface.i and
-            provides additional macros (see Java.html for full documentation):
+2019-07-18: cher-nov
+            [Python] #1573 Generated Python code uses consistent string quoting style - double
+            quotes.
 
-              %interface(CTYPE)
-              %interface_impl(CTYPE)
-              %interface_custom("PROXY", "INTERFACE", CTYPE)
+2019-07-16: geefr
+            [C#] #616 #1576 Fix C# bool INPUT[], bool OUTPUT[], bool INOUT[] typemaps to marshall
+            as 1-byte.
 
-2016-03-01: wsfulton
-            Add rstrip encoder for use in %rename. This is like the strip encoder but
-            strips the symbol's suffix instead of the prefix. The example below
-            will rename SomeThingCls to SomeThing and AnotherThingCls to AnotherThing:
+2019-07-12: vadz
+            [C#, Java] #1568 #1583 Fix std::set<> typemaps for primitive types.
 
-              %rename("%(rstrip:[Cls])s") "";
+2019-07-12: vadz
+            #1566 #1584 Regression in 4.0.0 - fix missing value for first item of enums with
+            trailing comma.
 
-              class SomeThingCls {};
-              struct AnotherThingCls {};
+2019-07-11: mcfarljm
+            #1548 #1578 Fix segfault in Doxygen parser parsing empty lines in some commands like
+            \code.
 
-2016-03-01: olly
-	    Fix isfinite() check to work with GCC6.  Fixes
-	    https://github.com/swig/swig/issues/615 reported by jplesnik.
+2019-07-09: IsaacPascual
+            [C#, Java] #1570 Fix name of generated C#/Java classes for %interface macros
+            in swiginterface.i when wrapping nested C++ classes.
 
-2016-02-17: olly
-	    [Python] Add missing keywords 'as' and 'with' to pythonkw.swg.
+2019-07-05: wsfulton
+            [Python] #1547 Whitespace fixes in Doxygen translated comments into pydoc comments
+            for Sphinx compatibility.
 
-2016-02-07: kwwette
-            [Octave] recognise various unary functions
-            * Use __float__() for numeric conversions, e.g. when calling double()
-            * Map various unary functions, e.g. abs() to __abs__(), see full list
-              in section 32.3.10 of manual; only available in Octave 3.8.0 or later
+2019-06-28: wsfulton
+            [MzScheme, OCaml] #1559 $arg and $input were incorrectly substituted in the
+            argout typemap when two or more arguments were present.
 
-2016-02-07: kwwette
-            [Octave] export function swig_octave_prereq() for testing Octave version
-
-2016-02-06: pjohangustavsson
-            [C#] Fix duplicate symbol problems when linking the source generated
-            from multiple SWIG modules into one shared library for the -namespace
-            option. The namespace is now mangled into the global PInvoke function
-            names.
+2019-06-24: wsfulton
+            [Python, Ruby] #1538 Remove the UnknownExceptionHandler class in order to be
+            C++17 compliant as it uses std::unexpected_handler which was removed in C++17.
+            This class was intended for director exception handling but was never used by
+            SWIG and was never documented.
 
             *** POTENTIAL INCOMPATIBILITY ***
 
-2016-01-27: ahnolds
-            [Python] Added support for differentiating between Python Bytes
-            and Unicode objects using by defining SWIG_PYTHON_STRICT_BYTE_CHAR
-            and SWIG_PYTHON_STRICT_UNICODE_WCHAR.
+2019-06-06: bkotzz
+            [Java] #1552 Improve performance in Java std::vector constructor wrapper that takes
+            a native Java array as input.
 
-2016-01-27: steeve
-            [Go] Ensure structs are properly packed between gc and GCC/clang.
+2019-06-03: olly
+	    [Python] Fix regression in implicit_conv handling of tuples,
+	    introduced in SWIG 4.0.0.  Fixes #1553, reported by Alexandre
+	    Duret-Lutz.
 
-2016-01-25: ahnolds
-            [Python] Support the full Python test suite in -classic mode
-            * Convert long/unsigned long/long long/unsigned long long to PyInt
-              rather than PyLong when possible. Certain python functions like
-              len() require a PyInt when operating on old-style classes.
-            * Add support for static methods in classic mode, including support
-              for pythonappend, pythonprepend, and docstrings.
-            * Removing the use of __swig_getmethods__ for static member methods
-              since they will always be found by the standard argument lookup
-            * Fix a bug where the wrong type of exception was caught when
-              checking for new-style class support
+2019-05-24: wsfulton
+            [Octave] Fix detection of Octave on MacOS.
 
-2016-01-23: ahnolds
-            [Go] Enable support for the Go test-suite on OSX:
-            * The linker on OSX requires that all symbols (even weak symbols)
-              are defined at link time. Because the function _cgo_topofstack is
-              only defined starting in Go version 1.4, we explicitly mark it as
-              undefined for older versions of Go on OSX.
-            * Avoid writing empty swigargs structs, since empty structs are not
-              allowed in extern "C" blocks.
+2019-05-24: opoplawski
+            [Octave] #1522 Adapt OCTAVE_LDFLAGS for Octave 5.1.
 
-2016-01-12: olly
-	    [Javascript] Look for "nodejs" as well as "node", as it's packaged
-	    as the former on Debian.
-
-2016-01-12: olly
-	    [Javascript] For v8 >= 4.3.0, use V8_MAJOR_VERSION.
-	    Fixes https://github.com/swig/swig/issues/561.
-
-2016-01-10: ahnolds
-            Improved size_t and ptrdiff_t typemaps to support large values
-            on platforms where sizeof(size_t) > sizeof(unsigned long) and
-            sizeof(ptrdiff_t) > sizeof(long).
+2019-05-22: ferdynator
+	    [PHP] #1528 Don't add a closing '?>' PHP tag to generated files.
+	    PSR-2 says it MUST be omitted for files containing only PHP.
